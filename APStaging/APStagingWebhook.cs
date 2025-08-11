@@ -173,9 +173,12 @@ namespace APStaging
                 var values = new Dictionary<string, string>
                 {
                     { "grant_type", "password" },
-                    { "client_id", "1738D622-97CE-8848-3D14-AE0D6EED9FFF@Publisher" },
-                    { "client_secret", "1jEmrW2FE-Eh3gHA60R_NQ" },
-                    { "username", "apiuser" },
+                    //{ "client_id", "1738D622-97CE-8848-3D14-AE0D6EED9FFF@Publisher" },
+                    { "client_id", "EF2EADF8-F569-7975-21FB-DE7BF43509E2@IYRES" },
+                    //{ "client_secret", "1jEmrW2FE-Eh3gHA60R_NQ" },
+                    { "client_secret", "5T3MpqMJE5vQnhgYc5CVdQ" },
+                    //{ "username", "apiuser" },
+                    { "username", "apiuser1" },
                     { "password", "Abc@1234" },
                     { "scope", "api" }
                 };

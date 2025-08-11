@@ -85,6 +85,7 @@
     <Compile Include="APInvoiceStagingMaint.cs" />
     <Compile Include="APStagingWebhook.cs" />
     <Compile Include="DAC\APInvoiceStagingPayment.cs" />
+    <Compile Include="Messages.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
