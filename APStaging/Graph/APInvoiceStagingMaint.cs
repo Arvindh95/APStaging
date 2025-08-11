@@ -27,6 +27,10 @@ namespace APStaging
             Where<APInvoiceStagingPayment.stagingID, Equal<Current<APInvoiceStaging.stagingID>>>> 
             PaymentInfo;
 
+        public PXSetup<APStagingPreferences> Setup;
+
+        private APStagingPreferences Prefs => Setup.Current ?? throw new PXSetupNotEnteredException(Messages.PreferencesNotSetup, typeof(APStagingPreferences));
+
 
         // Save/cancel buttons for header
         public PXSave<APInvoiceStaging> Save;
@@ -100,7 +104,7 @@ namespace APStaging
                 {
                     ["Amount"] = new JObject { ["value"] = detail.Amount },
                     ["Subaccount"] = new JObject { ["value"] = subaccountCode },
-                    ["Description"] = new JObject { ["value"] = detail.TransactionDescr },
+                    ["TransactionDescription"] = new JObject { ["value"] = detail.TransactionDescr },
                     ["Account"] = new JObject { ["value"] = accountCode },
                     ["Qty"] = new JObject { ["value"] = detail.Qty },
                     ["UnitCost"] = new JObject { ["value"] = detail.UnitCost },
@@ -117,13 +121,14 @@ namespace APStaging
 
         private bool CreateAPBillSync(JObject payload)  // Remove async, change return type
         {
+            string token = null;
             try
             {
                 // LOG: Starting API call process
                 PXTrace.WriteInformation("Starting AP Bill creation process...");
 
                 // Get Acumatica API token
-                string token = GetAcumaticaTokenSync();
+                token = GetAcumaticaTokenSync();
 
                 // Use same pattern - disable proxy and set timeout
                 var handler = new HttpClientHandler { UseProxy = false };
@@ -132,9 +137,13 @@ namespace APStaging
                     client.DefaultRequestHeaders.Authorization =
                         new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
-                    var apiUrl = "https://hopelessly-noted-jay.ngrok-free.app/saga/entity/APStaging/24.200.001/Bill";
+                    //var apiUrl = "https://hopelessly-noted-jay.ngrok-free.app/saga/entity/APStaging/24.200.001/Bill";
                     var jsonString = payload.ToString();
                     var content = new StringContent(jsonString, System.Text.Encoding.UTF8, "application/json");
+                    var baseUrl = Prefs.BaseUrl?.TrimEnd('/') ?? throw new PXException(Messages.BaseURLNotSet);
+                    var endpoint = Prefs.EndpointBill?.Trim() ?? throw new PXException(Messages.BillEndpointNotSet);
+                    var apiUrl = $"{baseUrl}{endpoint}";
+
 
                     // LOG: Making AP Bill API call
                     PXTrace.WriteInformation($"Making AP Bill API call to: {apiUrl}");
@@ -167,53 +176,39 @@ namespace APStaging
                 PXTrace.WriteError($"Exception StackTrace: {ex.StackTrace}");
                 return false;
             }
+            finally
+            {
+                // ALWAYS LOGOUT - whether success or failure
+                if (!string.IsNullOrEmpty(token))
+                {
+                    LogoutFromAPI(token);
+                }
+            }
         }
 
         private string GetAcumaticaTokenSync()
         {
             PXTrace.WriteInformation("Starting token request...");
+            var baseUrl = Prefs.BaseUrl?.TrimEnd('/') ?? throw new PXException(Messages.BaseURLNotSet);
+            var tokenUrl = $"{baseUrl}/identity/connect/token";
 
-            string tokenUrl = "https://hopelessly-noted-jay.ngrok-free.app/saga/identity/connect/token";
-
-            // Use same pattern as your AuthService - disable proxy and set timeout
             var handler = new HttpClientHandler { UseProxy = false };
             using (var client = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(3) })
             {
-                PXTrace.WriteInformation($"Making token request to: {tokenUrl}");
-
                 var form = new FormUrlEncodedContent(new[]
                 {
                     new KeyValuePair<string,string>("grant_type", "password"),
-                    new KeyValuePair<string,string>("client_id", "EF2EADF8-F569-7975-21FB-DE7BF43509E2@IYRES"),
-                    new KeyValuePair<string,string>("client_secret", "5T3MpqMJE5vQnhgYc5CVdQ"),
-                    new KeyValuePair<string,string>("username", "apiuser1"),
-                    new KeyValuePair<string,string>("password", "Abc@1234"),
-                    new KeyValuePair<string,string>("scope", "api")
+                    new KeyValuePair<string,string>("client_id", Prefs.TokenClientId),
+                    new KeyValuePair<string,string>("client_secret", Prefs.TokenClientSecret),
+                    new KeyValuePair<string,string>("username", Prefs.TokenUsername),
+                    new KeyValuePair<string,string>("password", Prefs.TokenPassword),
+                    new KeyValuePair<string,string>("scope", string.IsNullOrWhiteSpace(Prefs.TokenScope) ? "api" : Prefs.TokenScope)
                 });
 
-                // Use .Result instead of async/await
-                HttpResponseMessage response = client.PostAsync(tokenUrl, form).Result;
-                string body = response.Content.ReadAsStringAsync().Result;
-
-                PXTrace.WriteInformation($"Token response status: {response.StatusCode}");
-                PXTrace.WriteInformation($"Token response body: {body}");
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    PXTrace.WriteError($"Token request failed: {response.StatusCode} - {body}");
-                    throw new Exception($"Failed to get token: {body}");
-                }
-
-                var json = JObject.Parse(body);
-                string token = json["access_token"]?.ToString();
-
-                if (string.IsNullOrEmpty(token))
-                {
-                    throw new Exception("Access token not found in response");
-                }
-
-                PXTrace.WriteInformation("✅ Token obtained successfully");
-                return token;
+                var response = client.PostAsync(tokenUrl, form).Result;
+                var body = response.Content.ReadAsStringAsync().Result;
+                if (!response.IsSuccessStatusCode) throw new PXException(Messages.TokenFailed);
+                return JObject.Parse(body)["access_token"]?.ToString();
             }
         }
 
@@ -264,6 +259,39 @@ namespace APStaging
             return adapter.Get();
         }
 
+        private void LogoutFromAPI(string token)
+        {
+            try
+            {
+                PXTrace.WriteInformation("Attempting to logout from API...");
+
+                var baseUrl = Prefs.BaseUrl?.TrimEnd('/') ?? throw new PXException(Messages.BaseURLNotSet);
+                var logoutUrl = $"{baseUrl}/entity/auth/logout";
+
+                var handler = new HttpClientHandler { UseProxy = false };
+                using (var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) })
+                {
+                    client.DefaultRequestHeaders.Authorization =
+                        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+                    var response = client.PostAsync(logoutUrl, null).Result;
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        PXTrace.WriteInformation("✅ Successfully logged out from API");
+                    }
+                    else
+                    {
+                        PXTrace.WriteWarning($"Logout response: {response.StatusCode}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                PXTrace.WriteError($"Logout failed: {ex.Message}");
+                // Don't throw - logout failure shouldn't break the main process
+            }
+        }
 
         // Default vendor behavior
         protected void _(Events.FieldUpdated<APInvoiceStaging, APInvoiceStaging.vendorID> e)

@@ -41,16 +41,22 @@ namespace APStaging
             // Parse and extract data
             try
             {
+                // GET PREFERENCES INSTEAD OF HARDCODED VALUES
+                APStagingPreferences prefs = GetPreferences();
+                string storecoveToken = prefs?.StorecoveToken ?? throw new Exception("Storecove token not configured");
+
                 var json = JObject.Parse(body);
                 string eventType = json.Value<string>("event_type");
                 string eventName = json.Value<string>("event");
                 string documentGuid = json.Value<string>("document_guid");
-                string storecoveToken = "6Yulb4v6ojlARzex4XZ9Wfu4TQkX6DcIa2-SogY730I"; // Or from config
+                //string storecoveToken = "6Yulb4v6ojlARzex4XZ9Wfu4TQkX6DcIa2-SogY730I"; // Or from config
 
 
                 if (eventType == "received_document" && eventName == "received" && !string.IsNullOrEmpty(documentGuid))
                 {
-                    string receivedDocUrl = $"https://api.storecove.com/api/v2/received_documents/{documentGuid}";
+                    // Use storecove base URL from preferences
+                    string storecoveBaseUrl = prefs?.StorecoveBaseUrl?.TrimEnd('/') ?? "https://api.storecove.com/api/v2";
+                    string receivedDocUrl = $"{storecoveBaseUrl}/received_documents/{documentGuid}";
                     PXTrace.WriteInformation("Received Document URL: {0}", receivedDocUrl);
 
                     // Save the URL to the log file
@@ -88,6 +94,7 @@ namespace APStaging
                                 ["VendorName"] = new JObject { ["value"] = (string)supplier?["company_name"] },
                                 ["Date"] = new JObject { ["value"] = (string)invoice?["issue_date"] },
                                 ["VendorRef"] = new JObject { ["value"] = (string)invoice?["invoice_number"] },
+                                ["InvoiceNbr"] = new JObject { ["value"] = (string)invoice?["invoice_number"] },
                                 ["Details"] = new JArray()
                             };
 
@@ -108,18 +115,23 @@ namespace APStaging
                             File.AppendAllText(filePath, Environment.NewLine + "Acumatica Payload (pretty):" + Environment.NewLine + acumaticaPayload.ToString(Newtonsoft.Json.Formatting.Indented));
 
                             // (1) Get Acumatica API token
-                            string acumaticaToken = await GetAcumaticaTokenAsync(filePath);
+                            string acumaticaToken = await GetAcumaticaTokenFromPrefsAsync(prefs, filePath);
+
 
                             // (2) POST to Acumatica endpoint
                             using (var apiClient = new System.Net.Http.HttpClient())
                             {
-                                apiClient.DefaultRequestHeaders.Authorization =
-                                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", acumaticaToken);
+                                apiClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", acumaticaToken);
 
                                 var jsonString = acumaticaPayload.ToString();
-                                var apiUrl = "https://hopelessly-noted-jay.ngrok-free.app/saga/entity/APStaging/24.200.001/APStaging";
+
+                                // Use endpoint from preferences
+                                var baseUrl = prefs?.BaseUrl?.TrimEnd('/') ?? throw new Exception("Base URL not configured");
+                                var endpoint = prefs?.EndpointAPStaging?.Trim() ?? throw new Exception("APStaging endpoint not configured");
+                                var apiUrl = $"{baseUrl}{endpoint}";
+
                                 var content = new StringContent(jsonString, System.Text.Encoding.UTF8, "application/json");
-                                var postResp = await apiClient.PutAsync(apiUrl, content);   
+                                var postResp = await apiClient.PutAsync(apiUrl, content);
 
                                 var postRespStr = await postResp.Content.ReadAsStringAsync();
                                 PXTrace.WriteInformation("Acumatica PUT response: " + postRespStr);
@@ -141,7 +153,7 @@ namespace APStaging
             }
             catch (Exception ex)
             {
-                PXTrace.WriteError("Error parsing JSON or received_document response: {0}", ex.Message);
+                PXTrace.WriteError("Error in webhook: {0}", ex.Message);
                 responseMsg = "error";
             }
 
@@ -165,23 +177,31 @@ namespace APStaging
 
         }
 
-        public async Task<string> GetAcumaticaTokenAsync(string filePath)
+        private APStagingPreferences GetPreferences()
+        {
+            // Use a minimal base graph for preferences access
+            var graph = new PXGraph();
+            var setup = new PXSetup<APStagingPreferences>(graph);
+            return setup.Current ?? throw new Exception("AP Staging Preferences not configured");
+        }
+
+        private async Task<string> GetAcumaticaTokenFromPrefsAsync(APStagingPreferences prefs, string filePath)
         {
             using (var client = new System.Net.Http.HttpClient())
             {
-                var tokenUrl = "https://hopelessly-noted-jay.ngrok-free.app/saga/identity/connect/token";
+                var baseUrl = prefs?.BaseUrl?.TrimEnd('/') ?? throw new Exception("Base URL not configured");
+                var tokenUrl = $"{baseUrl}/identity/connect/token";
+
                 var values = new Dictionary<string, string>
-                {
-                    { "grant_type", "password" },
-                    //{ "client_id", "1738D622-97CE-8848-3D14-AE0D6EED9FFF@Publisher" },
-                    { "client_id", "EF2EADF8-F569-7975-21FB-DE7BF43509E2@IYRES" },
-                    //{ "client_secret", "1jEmrW2FE-Eh3gHA60R_NQ" },
-                    { "client_secret", "5T3MpqMJE5vQnhgYc5CVdQ" },
-                    //{ "username", "apiuser" },
-                    { "username", "apiuser1" },
-                    { "password", "Abc@1234" },
-                    { "scope", "api" }
-                };
+            {
+                { "grant_type", "password" },
+                { "client_id", prefs?.TokenClientId ?? throw new Exception("Client ID not configured") },
+                { "client_secret", prefs?.TokenClientSecret ?? throw new Exception("Client secret not configured") },
+                { "username", prefs?.TokenUsername ?? throw new Exception("Username not configured") },
+                { "password", prefs?.TokenPassword ?? throw new Exception("Password not configured") },
+                { "scope", string.IsNullOrWhiteSpace(prefs?.TokenScope) ? "api" : prefs.TokenScope }
+            };
+
                 var content = new FormUrlEncodedContent(values);
                 var response = await client.PostAsync(tokenUrl, content);
                 var respString = await response.Content.ReadAsStringAsync();
