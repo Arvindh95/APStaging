@@ -32,11 +32,11 @@ namespace APStaging
             PXTrace.WriteInformation("Webhook Body: {0}", body);
 
             // Save payload to file
-            string appData = AppDomain.CurrentDomain.BaseDirectory + "App_Data\\WebhookLogs\\";
-            if (!Directory.Exists(appData)) Directory.CreateDirectory(appData);
-            string filename = $"payload_{DateTime.Now:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid().ToString().Substring(0, 8)}.txt";
-            var filePath = Path.Combine(appData, filename);
-            File.WriteAllText(filePath, body);
+            //string appData = AppDomain.CurrentDomain.BaseDirectory + "App_Data\\WebhookLogs\\";
+            //if (!Directory.Exists(appData)) Directory.CreateDirectory(appData);
+            //string filename = $"payload_{DateTime.Now:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid().ToString().Substring(0, 8)}.txt";
+            //var filePath = Path.Combine(appData, filename);
+            //File.WriteAllText(filePath, body);
 
             // Parse and extract data
             try
@@ -60,7 +60,7 @@ namespace APStaging
                     PXTrace.WriteInformation("Received Document URL: {0}", receivedDocUrl);
 
                     // Save the URL to the log file
-                    File.AppendAllText(filePath, Environment.NewLine + "Received Document URL: " + receivedDocUrl);
+                    //File.AppendAllText(filePath, Environment.NewLine + "Received Document URL: " + receivedDocUrl);
 
                     // --- Call Storecove received_document URL and log the payload ---
                     using (var httpClient = new System.Net.Http.HttpClient())
@@ -78,10 +78,10 @@ namespace APStaging
                             PXTrace.WriteInformation("Received Document JSON: {0}", receivedJson);
 
                             // Save to a file (for auditing)
-                            var receivedJsonFilename = Path.GetFileNameWithoutExtension(filePath) + "_received.json";
-                            var receivedJsonPath = Path.Combine(appData, receivedJsonFilename);
-                            File.WriteAllText(receivedJsonPath, receivedJson);
-                            PXTrace.WriteInformation("Saved received document JSON to: {0}", receivedJsonPath);
+                            //var receivedJsonFilename = Path.GetFileNameWithoutExtension(filePath) + "_received.json";
+                            //var receivedJsonPath = Path.Combine(appData, receivedJsonFilename);
+                            //File.WriteAllText(receivedJsonPath, receivedJson);
+                            //PXTrace.WriteInformation("Saved received document JSON to: {0}", receivedJsonPath);
                             // Parse Storecove JSON (already as string: receivedJson)
                             var storecoveObj = JObject.Parse(receivedJson);
                             var invoice = storecoveObj["document"]?["invoice"];
@@ -112,10 +112,10 @@ namespace APStaging
 
                             // (OPTIONAL) Log it for debugging
                             PXTrace.WriteInformation("Acumatica payload: {0}", acumaticaPayload.ToString());
-                            File.AppendAllText(filePath, Environment.NewLine + "Acumatica Payload (pretty):" + Environment.NewLine + acumaticaPayload.ToString(Newtonsoft.Json.Formatting.Indented));
+                            //File.AppendAllText(filePath, Environment.NewLine + "Acumatica Payload (pretty):" + Environment.NewLine + acumaticaPayload.ToString(Newtonsoft.Json.Formatting.Indented));
 
                             // (1) Get Acumatica API token
-                            string acumaticaToken = await GetAcumaticaTokenFromPrefsAsync(prefs, filePath);
+                            string acumaticaToken = await GetAcumaticaTokenFromPrefsAsync(prefs);
 
 
                             // (2) POST to Acumatica endpoint
@@ -137,7 +137,7 @@ namespace APStaging
                                 PXTrace.WriteInformation("Acumatica PUT response: " + postRespStr);
 
                                 // (Optional) Also log to file
-                                File.AppendAllText(filePath, Environment.NewLine + "Acumatica PUT response:" + Environment.NewLine + postRespStr);
+                                //File.AppendAllText(filePath, Environment.NewLine + "Acumatica PUT response:" + Environment.NewLine + postRespStr);
                             }
 
 
@@ -185,7 +185,7 @@ namespace APStaging
             return setup.Current ?? throw new Exception("AP Staging Preferences not configured");
         }
 
-        private async Task<string> GetAcumaticaTokenFromPrefsAsync(APStagingPreferences prefs, string filePath)
+        private async Task<string> GetAcumaticaTokenFromPrefsAsync(APStagingPreferences prefs)
         {
             using (var client = new System.Net.Http.HttpClient())
             {
@@ -207,16 +207,16 @@ namespace APStaging
                 var respString = await response.Content.ReadAsStringAsync();
 
                 // Log the response to file
-                File.AppendAllText(filePath, Environment.NewLine + "Acumatica login response:" + Environment.NewLine + respString);
+                //File.AppendAllText(filePath, Environment.NewLine + "Acumatica login response:" + Environment.NewLine + respString);
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    File.AppendAllText(filePath, Environment.NewLine + "Acumatica login FAILED.");
+                    //File.AppendAllText(filePath, Environment.NewLine + "Acumatica login FAILED.");
                     throw new Exception("Failed to login to Acumatica: " + respString);
                 }
 
                 var obj = JObject.Parse(respString);
-                File.AppendAllText(filePath, Environment.NewLine + "Acumatica login SUCCESS. Access token received.");
+                //File.AppendAllText(filePath, Environment.NewLine + "Acumatica login SUCCESS. Access token received.");
                 return obj.Value<string>("access_token");
             }
         }

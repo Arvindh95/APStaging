@@ -143,12 +143,22 @@ namespace APStaging
         [PXDBString(1, IsFixed = true)]
         [PXDefault("H")]
         [PXStringList(
-            new[] { "H", "B", "V", "S", "N", "C", "P", "K", "E", "R", "Z" },
-            new[] { "On Hold", "Balanced", "Voided", "Scheduled", "Open", "Closed",
-                    "Printed", "Pre-Released", "Pending Approval", "Rejected", "Reserved" })]
+            new[] { "H" },
+            new[] { "On Hold" })]
         [PXUIField(DisplayName = "Status")]
         public string Status { get; set; }
         public abstract class status : PX.Data.BQL.BqlString.Field<status> { }
+        #endregion
+
+        #region ProcessingStatus
+        [PXDBString(1, IsFixed = true)]
+        [PXDefault("U")]
+        [PXStringList(
+            new[] { "U", "P" },
+            new[] { "Unprocessed", "Processed" })]
+        [PXUIField(DisplayName = "Processing Status", Enabled = false)]
+        public string ProcessingStatus { get; set; }
+        public abstract class processingStatus : PX.Data.BQL.BqlString.Field<processingStatus> { }
         #endregion
 
         #region APRefNbr

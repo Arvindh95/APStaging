@@ -224,6 +224,12 @@ namespace APStaging
                 throw new PXException(Messages.NoStagingRecordSelected);
             }
 
+            // Check if already processed
+            if (current.ProcessingStatus == "P")
+            {
+                throw new PXException(Messages.RecordAlreadyProcessed);
+            }
+
             try
             {
                 // Build the JSON payload
@@ -242,9 +248,12 @@ namespace APStaging
 
                 if (result)
                 {
-                    // Success - show message but don't throw exception
+                    // Success - update processing status and save
+                    current.ProcessingStatus = "P"; // Set to Processed
+                    APStaging.Update(current);
+                    this.Actions.PressSave();
+                    
                     PXTrace.WriteInformation(Messages.APBillCreationSuccess);
-                    // Or use: this.Actions.PressSave(); // to show success in UI
                 }
                 else
                 {
