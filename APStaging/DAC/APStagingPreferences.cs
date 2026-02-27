@@ -7,6 +7,14 @@ namespace APStaging
     [PXCacheName("AP Staging Preferences")]
     public class APStagingPreferences : PXBqlTable, IBqlTable
     {
+        #region PreferencesID
+        [PXDBString(10, IsKey = true)]
+        [PXDefault("APSTAGING")]
+        [PXUIField(DisplayName = "Preferences ID", Visibility = PXUIVisibility.Invisible)]
+        public string PreferencesID { get; set; }
+        public abstract class preferencesID : PX.Data.BQL.BqlString.Field<preferencesID> { }
+        #endregion
+
         #region BaseUrl (e.g. https://yourdomain/saga)
         [PXDBString(255, IsUnicode = true)]
         [PXUIField(DisplayName = "Acumatica Base URL")]
