@@ -16,11 +16,14 @@ namespace APStaging
         public abstract class detailID : PX.Data.BQL.BqlInt.Field<detailID> { }
         #endregion
 
+        #region StagingID
         [PXDBInt]
         [PXDBDefault(typeof(APInvoiceStaging.stagingID))]
         [PXParent(typeof(Select<APInvoiceStaging, Where<APInvoiceStaging.stagingID, Equal<Current<APInvoiceStagingDetail.stagingID>>>>))]
+        [PXUIField(DisplayName = "Staging ID", Visible = false)]
         public virtual int? StagingID { get; set; }
         public abstract class stagingID : PX.Data.BQL.BqlInt.Field<stagingID> { }
+        #endregion
 
 
         #region BranchID
@@ -64,8 +67,9 @@ namespace APStaging
         #endregion
 
         #region Amount
-        [PXDecimal]
+        [PXDBDecimal(2)]
         [PXFormula(typeof(Sub<Mult<qty, unitCost>, discountAmt>))]
+        [PXDefault(TypeCode.Decimal, "0.0")]
         [PXUIField(DisplayName = "Amount", Enabled = false)]
         public decimal? Amount { get; set; }
         public abstract class amount : PX.Data.BQL.BqlDecimal.Field<amount> { }

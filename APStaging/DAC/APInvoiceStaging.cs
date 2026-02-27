@@ -8,8 +8,9 @@ using PX.Objects.GL;
 
 namespace APStaging
 {
+    [PXPrimaryGraph(typeof(APInvoiceStagingMaint))]
     [Serializable]
-    [PXCacheName("AP Invoice Staging")]              // links to SQL table
+    [PXCacheName("AP Invoice Staging")]
     public class APInvoiceStaging : PXBqlTable, IBqlTable
     {
         #region StagingID (Primary Key)
@@ -143,8 +144,8 @@ namespace APStaging
         [PXDBString(1, IsFixed = true)]
         [PXDefault("H")]
         [PXStringList(
-            new[] { "H" },
-            new[] { "On Hold" })]
+            new[] { "H", "O", "E" },
+            new[] { "On Hold", "Open", "Error" })]
         [PXUIField(DisplayName = "Status")]
         public string Status { get; set; }
         public abstract class status : PX.Data.BQL.BqlString.Field<status> { }

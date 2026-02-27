@@ -1,47 +1,45 @@
-﻿using Newtonsoft.Json.Linq;
+using Newtonsoft.Json.Linq;
 using PX.Data;
+using PX.Data.BQL;
 using PX.Data.BQL.Fluent;
 using PX.Objects.AP;
 using PX.Objects.CR;
 using PX.Objects.CS;
-using PX.Objects.GL;  // Add this for Account
-using PX.Objects.PM;  // Add this for PMProject
+using PX.Objects.GL;
+using PX.Objects.PM;
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using System.Net.Http;
+
 namespace APStaging
 {
-    public class APInvoiceStagingMaint : PXGraph<APInvoiceStagingMaint>
+    public class APInvoiceStagingMaint : PXGraph<APInvoiceStagingMaint, APInvoiceStaging>
     {
-        // Main header view
-        public PXSelect<APInvoiceStaging> APStaging;
+        // Main header view — Fluent BQL
+        public SelectFrom<APInvoiceStaging>.View APStaging;
 
-        // Detail view
-        public PXSelect<APInvoiceStagingDetail,
-            Where<APInvoiceStagingDetail.stagingID, Equal<Current<APInvoiceStaging.stagingID>>>>
-            Details;
+        // Detail view — Fluent BQL
+        public SelectFrom<APInvoiceStagingDetail>
+            .Where<APInvoiceStagingDetail.stagingID.IsEqual<APInvoiceStaging.stagingID.FromCurrent>>
+            .View Details;
 
-        public PXSelect<APInvoiceStagingPayment,
-            Where<APInvoiceStagingPayment.stagingID, Equal<Current<APInvoiceStaging.stagingID>>>> 
-            PaymentInfo;
+        public SelectFrom<APInvoiceStagingPayment>
+            .Where<APInvoiceStagingPayment.stagingID.IsEqual<APInvoiceStaging.stagingID.FromCurrent>>
+            .View PaymentInfo;
 
         public PXSetup<APStagingPreferences> Setup;
 
-        private APStagingPreferences Prefs => Setup.Current ?? throw new PXSetupNotEnteredException(Messages.PreferencesNotSetup, typeof(APStagingPreferences));
+        private APStagingPreferences Prefs =>
+            Setup.Current ?? throw new PXSetupNotEnteredException(Messages.PreferencesNotSetup, typeof(APStagingPreferences));
 
-
-        // Save/cancel buttons for header
+        // Toolbar actions
         public PXSave<APInvoiceStaging> Save;
         public PXCancel<APInvoiceStaging> Cancel;
         public PXDelete<APInvoiceStaging> Delete;
-
-        // Save/cancel for detail grid
         public PXInsert<APInvoiceStagingDetail> InsertDetail;
         public PXDelete<APInvoiceStagingDetail> DeleteDetail;
 
-        // ADD THIS LINE - Action declaration
         public PXAction<APInvoiceStaging> createAPBill;
 
         private JObject BuildAPBillPayload()
@@ -49,147 +47,121 @@ namespace APStaging
             var current = APStaging.Current;
             if (current == null) return null;
 
-            // Get vendor code from VendorID
+            // Get vendor code — Fluent BQL
             string vendorCode = null;
             if (current.VendorID != null)
             {
-                var vendor = PXSelect<Vendor, Where<Vendor.bAccountID, Equal<Required<Vendor.bAccountID>>>>
-                    .Select(this, current.VendorID);
-                vendorCode = vendor != null ? ((Vendor)vendor).AcctCD : null;
+                var vendor = SelectFrom<Vendor>
+                    .Where<Vendor.bAccountID.IsEqual<@P.AsInt>>
+                    .View.Select(this, current.VendorID);
+                vendorCode = ((Vendor)vendor)?.AcctCD;
             }
 
-            // Build simplified header payload - only these 3 fields
             var payload = new JObject
             {
-                ["Vendor"] = new JObject { ["value"] = vendorCode },
+                ["Vendor"]    = new JObject { ["value"] = vendorCode },
                 ["VendorRef"] = new JObject { ["value"] = current.InvoiceNbr },
-                ["Date"] = new JObject { ["value"] = current.DocDate?.ToString("yyyy-MM-dd") }
+                ["Date"]      = new JObject { ["value"] = current.DocDate?.ToString("yyyy-MM-dd") }
             };
 
-            // Build simplified details array - now with 7 fields including Branch
             var detailsArray = new JArray();
             var details = Details.Select().RowCast<APInvoiceStagingDetail>();
 
             foreach (var detail in details)
             {
-                // Get account code
+                // Get account code — Fluent BQL
                 string accountCode = null;
                 if (detail.AccountID != null)
                 {
-                    var account = PXSelect<Account, Where<Account.accountID, Equal<Required<Account.accountID>>>>
-                        .Select(this, detail.AccountID);
-                    accountCode = account != null ? ((Account)account).AccountCD : null;
+                    var account = SelectFrom<Account>
+                        .Where<Account.accountID.IsEqual<@P.AsInt>>
+                        .View.Select(this, detail.AccountID);
+                    accountCode = ((Account)account)?.AccountCD;
                 }
 
-                // Get subaccount code
+                // Get subaccount code — Fluent BQL
                 string subaccountCode = null;
                 if (detail.SubID != null)
                 {
-                    var subaccount = PXSelect<PX.Objects.GL.Sub, Where<PX.Objects.GL.Sub.subID, Equal<Required<PX.Objects.GL.Sub.subID>>>>
-                        .Select(this, detail.SubID);
-                    subaccountCode = subaccount != null ? ((PX.Objects.GL.Sub)subaccount).SubCD : null;
+                    var sub = SelectFrom<PX.Objects.GL.Sub>
+                        .Where<PX.Objects.GL.Sub.subID.IsEqual<@P.AsInt>>
+                        .View.Select(this, detail.SubID);
+                    subaccountCode = ((PX.Objects.GL.Sub)sub)?.SubCD;
                 }
 
-                // Get branch code for detail
+                // Get branch code — Fluent BQL
                 string branchCode = null;
                 if (detail.BranchID != null)
                 {
-                    var branch = PXSelect<Branch, Where<Branch.branchID, Equal<Required<Branch.branchID>>>>
-                        .Select(this, detail.BranchID);
-                    branchCode = branch != null ? ((Branch)branch).BranchCD : null;
+                    var branch = SelectFrom<Branch>
+                        .Where<Branch.branchID.IsEqual<@P.AsInt>>
+                        .View.Select(this, detail.BranchID);
+                    branchCode = ((Branch)branch)?.BranchCD;
                 }
 
-                // Include these 7 fields (added Branch)
-                var detailObj = new JObject
+                // Amount is now persisted (PXDBDecimal), so detail.Amount is reliable
+                detailsArray.Add(new JObject
                 {
-                    ["Amount"] = new JObject { ["value"] = detail.Amount },
-                    ["Subaccount"] = new JObject { ["value"] = subaccountCode },
+                    ["Amount"]               = new JObject { ["value"] = detail.Amount },
+                    ["Subaccount"]           = new JObject { ["value"] = subaccountCode },
                     ["TransactionDescription"] = new JObject { ["value"] = detail.TransactionDescr },
-                    ["Account"] = new JObject { ["value"] = accountCode },
-                    ["Qty"] = new JObject { ["value"] = detail.Qty },
-                    ["UnitCost"] = new JObject { ["value"] = detail.UnitCost },
-                    ["Branch"] = new JObject { ["value"] = branchCode }
-                };
-
-                detailsArray.Add(detailObj);
+                    ["Account"]              = new JObject { ["value"] = accountCode },
+                    ["Qty"]                  = new JObject { ["value"] = detail.Qty },
+                    ["UnitCost"]             = new JObject { ["value"] = detail.UnitCost },
+                    ["Branch"]               = new JObject { ["value"] = branchCode }
+                });
             }
 
             payload["Details"] = detailsArray;
-
             return payload;
         }
 
-        private bool CreateAPBillSync(JObject payload)  // Remove async, change return type
+        private static bool CreateAPBillViaApi(JObject payload, APStagingPreferences prefs)
         {
             string token = null;
             try
             {
-                // LOG: Starting API call process
                 PXTrace.WriteInformation("Starting AP Bill creation process...");
+                token = GetAcumaticaToken(prefs);
 
-                // Get Acumatica API token
-                token = GetAcumaticaTokenSync();
-
-                // Use same pattern - disable proxy and set timeout
                 var handler = new HttpClientHandler { UseProxy = false };
                 using (var client = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(3) })
                 {
                     client.DefaultRequestHeaders.Authorization =
                         new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
-                    //var apiUrl = "https://hopelessly-noted-jay.ngrok-free.app/saga/entity/APStaging/24.200.001/Bill";
+                    var baseUrl  = prefs.BaseUrl?.TrimEnd('/') ?? throw new PXException(Messages.BaseURLNotSet);
+                    var endpoint = prefs.EndpointBill?.Trim()  ?? throw new PXException(Messages.BillEndpointNotSet);
+                    var apiUrl   = $"{baseUrl}{endpoint}";
+
                     var jsonString = payload.ToString();
-                    var content = new StringContent(jsonString, System.Text.Encoding.UTF8, "application/json");
-                    var baseUrl = Prefs.BaseUrl?.TrimEnd('/') ?? throw new PXException(Messages.BaseURLNotSet);
-                    var endpoint = Prefs.EndpointBill?.Trim() ?? throw new PXException(Messages.BillEndpointNotSet);
-                    var apiUrl = $"{baseUrl}{endpoint}";
+                    var content    = new StringContent(jsonString, System.Text.Encoding.UTF8, "application/json");
 
-
-                    // LOG: Making AP Bill API call
                     PXTrace.WriteInformation($"Making AP Bill API call to: {apiUrl}");
-                    PXTrace.WriteInformation($"Request payload size: {jsonString.Length} characters");
 
-                    // Use .Result instead of await
-                    var response = client.PutAsync(apiUrl, content).Result;
-                    var responseContent = response.Content.ReadAsStringAsync().Result;
+                    var response        = client.PutAsync(apiUrl, content).GetAwaiter().GetResult();
+                    var responseContent = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
 
-                    // LOG: API response details
                     PXTrace.WriteInformation($"AP Bill API Response Status: {response.StatusCode}");
-                    PXTrace.WriteInformation($"AP Bill API Response Headers: {response.Headers}");
                     PXTrace.WriteInformation($"AP Bill API Response Body: {responseContent}");
 
-                    if (response.IsSuccessStatusCode)
-                    {
-                        PXTrace.WriteInformation("AP Bill created successfully via API");
-                    }
-                    else
-                    {
+                    if (!response.IsSuccessStatusCode)
                         PXTrace.WriteError($"AP Bill API call failed: {response.StatusCode} - {responseContent}");
-                    }
 
                     return response.IsSuccessStatusCode;
                 }
             }
-            catch (Exception ex)
-            {
-                PXTrace.WriteError($"Exception in CreateAPBillSync: {ex.Message}");
-                PXTrace.WriteError($"Exception StackTrace: {ex.StackTrace}");
-                return false;
-            }
             finally
             {
-                // ALWAYS LOGOUT - whether success or failure
                 if (!string.IsNullOrEmpty(token))
-                {
-                    LogoutFromAPI(token);
-                }
+                    LogoutFromAPI(token, prefs);
             }
         }
 
-        private string GetAcumaticaTokenSync()
+        private static string GetAcumaticaToken(APStagingPreferences prefs)
         {
             PXTrace.WriteInformation("Starting token request...");
-            var baseUrl = Prefs.BaseUrl?.TrimEnd('/') ?? throw new PXException(Messages.BaseURLNotSet);
+            var baseUrl  = prefs.BaseUrl?.TrimEnd('/') ?? throw new PXException(Messages.BaseURLNotSet);
             var tokenUrl = $"{baseUrl}/identity/connect/token";
 
             var handler = new HttpClientHandler { UseProxy = false };
@@ -197,85 +169,91 @@ namespace APStaging
             {
                 var form = new FormUrlEncodedContent(new[]
                 {
-                    new KeyValuePair<string,string>("grant_type", "password"),
-                    new KeyValuePair<string,string>("client_id", Prefs.TokenClientId),
-                    new KeyValuePair<string,string>("client_secret", Prefs.TokenClientSecret),
-                    new KeyValuePair<string,string>("username", Prefs.TokenUsername),
-                    new KeyValuePair<string,string>("password", Prefs.TokenPassword),
-                    new KeyValuePair<string,string>("scope", string.IsNullOrWhiteSpace(Prefs.TokenScope) ? "api" : Prefs.TokenScope)
+                    new KeyValuePair<string,string>("grant_type",    "password"),
+                    new KeyValuePair<string,string>("client_id",     prefs.TokenClientId),
+                    new KeyValuePair<string,string>("client_secret", prefs.TokenClientSecret),
+                    new KeyValuePair<string,string>("username",      prefs.TokenUsername),
+                    new KeyValuePair<string,string>("password",      prefs.TokenPassword),
+                    new KeyValuePair<string,string>("scope",         string.IsNullOrWhiteSpace(prefs.TokenScope) ? "api" : prefs.TokenScope)
                 });
 
-                var response = client.PostAsync(tokenUrl, form).Result;
-                var body = response.Content.ReadAsStringAsync().Result;
-                if (!response.IsSuccessStatusCode) throw new PXException(Messages.TokenFailed);
+                var response = client.PostAsync(tokenUrl, form).GetAwaiter().GetResult();
+                var body     = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+
+                if (!response.IsSuccessStatusCode)
+                    throw new PXException(Messages.TokenFailed);
+
                 return JObject.Parse(body)["access_token"]?.ToString();
             }
         }
-
 
         [PXButton(CommitChanges = true)]
         [PXUIField(DisplayName = "Create AP Bill")]
         public virtual IEnumerable CreateAPBill(PXAdapter adapter)
         {
-            // Get current staging record
             var current = APStaging.Current;
             if (current == null)
-            {
                 throw new PXException(Messages.NoStagingRecordSelected);
-            }
 
-            // Check if already processed
             if (current.ProcessingStatus == "P")
-            {
                 throw new PXException(Messages.RecordAlreadyProcessed);
-            }
 
-            try
-            {
-                // Build the JSON payload
-                var payload = BuildAPBillPayload();
-                if (payload == null)
-                {
-                    throw new PXException(Messages.APBillCreationFailed);
-                }
-
-                // LOG THE PAYLOAD - Pretty formatted (keep for debugging)
-                string payloadString = payload.ToString(Newtonsoft.Json.Formatting.Indented);
-                PXTrace.WriteInformation($"AP Bill Payload: {payloadString}");
-
-                // MAKE THE ACTUAL API CALL
-                var result = CreateAPBillSync(payload);
-
-                if (result)
-                {
-                    // Success - update processing status and save
-                    current.ProcessingStatus = "P"; // Set to Processed
-                    APStaging.Update(current);
-                    this.Actions.PressSave();
-                    
-                    PXTrace.WriteInformation(Messages.APBillCreationSuccess);
-                }
-                else
-                {
-                    throw new PXException(Messages.APBillCreationFailed);
-                }
-            }
-            catch (Exception ex)
-            {
+            var payload = BuildAPBillPayload();
+            if (payload == null)
                 throw new PXException(Messages.APBillCreationFailed);
-            }
+
+            PXTrace.WriteInformation($"AP Bill Payload: {payload.ToString(Newtonsoft.Json.Formatting.Indented)}");
+
+            // Save current changes before launching background operation
+            Actions.PressSave();
+
+            var stagingID = current.StagingID;
+            var prefs     = Prefs;
+
+            // Use PXLongOperation so the HTTP call runs off the web request thread
+            PXLongOperation.StartOperation(this, () =>
+            {
+                bool success = false;
+                try
+                {
+                    success = CreateAPBillViaApi(payload, prefs);
+                }
+                catch (Exception ex)
+                {
+                    throw new PXException(Messages.APBillCreationFailed + " " + ex.Message, ex);
+                }
+
+                if (!success)
+                    throw new PXException(Messages.APBillCreationFailed);
+
+                // Update processing status inside the long operation using a fresh graph instance
+                var graph = PXGraph.CreateInstance<APInvoiceStagingMaint>();
+                APInvoiceStaging record = (APInvoiceStaging)graph.APStaging
+                    .Search<APInvoiceStaging.stagingID>(stagingID);
+                if (record != null)
+                {
+                    record.ProcessingStatus = "P";
+                    graph.APStaging.Update(record);
+                    graph.Save.Press();
+                }
+
+                PXTrace.WriteInformation(Messages.APBillCreationSuccess);
+            });
 
             return adapter.Get();
         }
 
-        private void LogoutFromAPI(string token)
+        private static void LogoutFromAPI(string token, APStagingPreferences prefs)
         {
             try
             {
                 PXTrace.WriteInformation("Attempting to logout from API...");
 
-                var baseUrl = Prefs.BaseUrl?.TrimEnd('/') ?? throw new PXException(Messages.BaseURLNotSet);
-                var logoutUrl = $"{baseUrl}/entity/auth/logout";
+                var baseUrl   = prefs.BaseUrl?.TrimEnd('/');
+                if (string.IsNullOrEmpty(baseUrl)) return;
+
+                // Logout URL uses the identity endpoint consistent with token endpoint
+                var logoutUrl = $"{baseUrl}/identity/connect/endsession";
 
                 var handler = new HttpClientHandler { UseProxy = false };
                 using (var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) })
@@ -283,77 +261,79 @@ namespace APStaging
                     client.DefaultRequestHeaders.Authorization =
                         new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
-                    var response = client.PostAsync(logoutUrl, null).Result;
+                    var response = client.PostAsync(logoutUrl, null).GetAwaiter().GetResult();
 
                     if (response.IsSuccessStatusCode)
-                    {
-                        PXTrace.WriteInformation("✅ Successfully logged out from API");
-                    }
+                        PXTrace.WriteInformation("Successfully logged out from API");
                     else
-                    {
                         PXTrace.WriteWarning($"Logout response: {response.StatusCode}");
-                    }
                 }
             }
             catch (Exception ex)
             {
                 PXTrace.WriteError($"Logout failed: {ex.Message}");
-                // Don't throw - logout failure shouldn't break the main process
+                // Don't throw — logout failure must not disrupt the main flow
             }
         }
 
-        // Default vendor behavior
+        // FieldUpdated — use SetValueExt so downstream field events fire correctly
         protected void _(Events.FieldUpdated<APInvoiceStaging, APInvoiceStaging.vendorID> e)
         {
-            var row = e.Row as APInvoiceStaging;
+            var row = e.Row;
             if (row?.VendorID == null) return;
 
-            var location = PXSelect<Location,
-                Where<Location.bAccountID, Equal<Required<Location.bAccountID>>,
-                      And<Location.isDefault, Equal<True>>>>
-                .Select(this, row.VendorID);
+            // Fluent BQL — targeted query instead of loading all records
+            var location = SelectFrom<Location>
+                .Where<Location.bAccountID.IsEqual<@P.AsInt>
+                    .And<Location.isDefault.IsEqual<True>>>
+                .View.Select(this, row.VendorID);
             if (location != null)
-                row.VendorLocationID = ((Location)location).LocationID;
+                e.Cache.SetValueExt<APInvoiceStaging.vendorLocationID>(row, ((Location)location).LocationID);
 
-            var vendor = PXSelect<Vendor,
-                Where<Vendor.bAccountID, Equal<Required<Vendor.bAccountID>>>>
-                .Select(this, row.VendorID);
+            var vendor = SelectFrom<Vendor>
+                .Where<Vendor.bAccountID.IsEqual<@P.AsInt>>
+                .View.Select(this, row.VendorID);
             if (vendor != null)
             {
-                row.TermsID = ((Vendor)vendor).TermsID;
-                row.CuryID = ((Vendor)vendor).CuryID;
+                e.Cache.SetValueExt<APInvoiceStaging.termsID>(row, ((Vendor)vendor).TermsID);
+                e.Cache.SetValueExt<APInvoiceStaging.curyID>(row,  ((Vendor)vendor).CuryID);
             }
         }
 
+        // RowPersisting — efficient targeted BQL instead of loading all vendors
         protected void _(Events.RowPersisting<APInvoiceStaging> e)
+        {
+            var row = e.Row;
+            if (row == null || row.VendorID != null || string.IsNullOrWhiteSpace(row.VendorName))
+                return;
+
+            // 1. Try exact match via SQL
+            var vendor = (Vendor)SelectFrom<Vendor>
+                .Where<Vendor.acctName.IsEqual<@P.AsString>>
+                .View.Select(this, row.VendorName);
+
+            // 2. Try LIKE match via SQL — avoids loading all vendors into memory
+            if (vendor == null)
+            {
+                vendor = (Vendor)SelectFrom<Vendor>
+                    .Where<Vendor.acctName.IsLike<@P.AsString>>
+                    .View.Select(this, $"%{row.VendorName}%");
+            }
+
+            if (vendor != null)
+                row.VendorID = vendor.BAccountID;
+        }
+
+        // Ensure Amount is always calculated before save (covers API/webhook inserts where PXFormula may not fire)
+        protected void _(Events.RowPersisting<APInvoiceStagingDetail> e)
         {
             var row = e.Row;
             if (row == null) return;
 
-            if (row.VendorID == null && !string.IsNullOrWhiteSpace(row.VendorName))
+            if (row.Amount == null || row.Amount == 0m)
             {
-                // Get all vendors
-                var vendors = PXSelect<Vendor>.Select(this).RowCast<Vendor>();
-
-                // 1. Try exact match (case-insensitive)
-                var vendor = vendors
-                    .FirstOrDefault(v => string.Equals(v.AcctName, row.VendorName, StringComparison.OrdinalIgnoreCase));
-
-                // 2. Try partial/fuzzy match (contains, case-insensitive)
-                if (vendor == null)
-                {
-                    vendor = vendors
-                        .FirstOrDefault(v => v.AcctName != null &&
-                                             v.AcctName.IndexOf(row.VendorName, StringComparison.OrdinalIgnoreCase) >= 0);
-                }
-
-                if (vendor != null)
-                {
-                    row.VendorID = vendor.BAccountID;
-                }
-                // else: leave blank, user can pick in the UI
+                row.Amount = (row.Qty ?? 0m) * (row.UnitCost ?? 0m) - (row.DiscountAmt ?? 0m);
             }
         }
-
     }
 }
