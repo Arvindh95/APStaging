@@ -228,7 +228,8 @@ namespace APStaging
 
                 // Update processing status inside the long operation using a fresh graph instance
                 var graph = PXGraph.CreateInstance<APInvoiceStagingMaint>();
-                var record = graph.APStaging.Search<APInvoiceStaging.stagingID>(stagingID);
+                APInvoiceStaging record = (APInvoiceStaging)graph.APStaging
+                    .Search<APInvoiceStaging.stagingID>(stagingID);
                 if (record != null)
                 {
                     record.ProcessingStatus = "P";
