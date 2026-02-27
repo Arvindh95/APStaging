@@ -323,5 +323,17 @@ namespace APStaging
             if (vendor != null)
                 row.VendorID = vendor.BAccountID;
         }
+
+        // Ensure Amount is always calculated before save (covers API/webhook inserts where PXFormula may not fire)
+        protected void _(Events.RowPersisting<APInvoiceStagingDetail> e)
+        {
+            var row = e.Row;
+            if (row == null) return;
+
+            if (row.Amount == null || row.Amount == 0m)
+            {
+                row.Amount = (row.Qty ?? 0m) * (row.UnitCost ?? 0m) - (row.DiscountAmt ?? 0m);
+            }
+        }
     }
 }
